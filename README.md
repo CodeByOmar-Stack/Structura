@@ -1,4 +1,4 @@
-# GestorCarpetas 📁
+# Structura 📁
 
 **Aplicación de escritorio para organizar y gestionar la estructura de carpetas de forma visual e intuitiva.**
 
@@ -58,8 +58,8 @@ El script instalará las dependencias, generará el ejecutable y creará un acce
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/TU_USUARIO/GestorCarpetas.git
-cd GestorCarpetas
+git clone https://github.com/CodeByOmar-Stack/Structura.git
+cd Structura
 
 # 2. Crear entorno virtual
 python -m venv venv
