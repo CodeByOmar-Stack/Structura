@@ -1,0 +1,56 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+*.spec.bak
+.eggs/
+dist/
+build/
+*.manifest
+
+# ========================
+# Entorno virtual
+# ========================
+venv/
+.venv/
+env/
+.env/
+
+# ========================
+# PyInstaller (artefactos de compilación)
+# ========================
+# El .spec SI se sube (es el "receta" de construcción)
+# Lo que NO se sube es la salida compilada:
+dist/
+build/
+
+# ========================
+# IDEs y editores
+# ========================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ========================
+# Sistema operativo
+# ========================
+# Windows
+Thumbs.db
+Desktop.ini
+# macOS
+.DS_Store
+.AppleDouble
+# Linux
+*~
+
+# ========================
+# Logs y temporales
+# ========================
+*.log
+*.tmp
