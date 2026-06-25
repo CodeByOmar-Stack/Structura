@@ -20,7 +20,8 @@ Desarrollada con Python y CustomTkinter. Compatible con **Windows**, **Linux** y
 
 ## 📸 Capturas de pantalla
 
-> *(Añade aquí una captura de la ventana principal y otra del editor de presets)*
+![alt text](/assets/image.png)
+![alt text](/assets/imagePresets.png)
 
 ---
 
