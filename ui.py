@@ -7,17 +7,20 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from pathlib import Path
+import constants
 from constants import (
     WINDOW_WIDTH,
     WINDOW_HEIGHT,
     THEME,
     APPEARANCE_MODE,
     FILE_ICONS,
-    EXTENSIONES,
     PRESET_STRUCTURES,
     PRESET_DESCRIPTIONS,
+    OTROS_FOLDER,
+    DEFAULT_ICON,
 )
 from file_organizer import FileOrganizer
+from custom_extensions import CustomExtensionsManager, get_extensions_manager
 
 
 class FolderTreeView(ctk.CTkFrame):
@@ -38,7 +41,7 @@ class FolderTreeView(ctk.CTkFrame):
         self.tree = ttk.Treeview(
             self.tree_frame,
             yscrollcommand=scrollbar.set,
-            height=20,
+            height=30,
         )
         scrollbar.configure(command=self.tree.yview)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -48,7 +51,7 @@ class FolderTreeView(ctk.CTkFrame):
         style.theme_use("clam")
 
         self.tree.heading("#0", text="Estructura de Carpetas")
-        self.tree.column("#0", width=400)
+        self.tree.column("#0", width=760)
 
     def display_tree(self, folder_path: str):
         """Display the folder structure in the tree."""
@@ -95,6 +98,7 @@ class FolderTreeView(ctk.CTkFrame):
     def _get_file_icon(extension: str) -> str:
         """Get icon for file based on extension."""
         ext = extension.lower()
+        from constants import EXTENSIONES
         for category, extensions in EXTENSIONES.items():
             if ext in extensions:
                 return FILE_ICONS.get(category, "📄")
@@ -152,8 +156,8 @@ class PresetEditor(ctk.CTkToplevel):
             text="➕",
             width=35,
             command=self.start_new_preset,
-            fg_color="#1565C0",
-            hover_color="#1E88E5",
+            fg_color="#2563EB",
+            hover_color="#1D4ED8",
         )
         add_preset_btn.pack(side="right")
 
@@ -189,12 +193,12 @@ class PresetEditor(ctk.CTkToplevel):
         style = ttk.Style()
         style.theme_use("default")
         style.configure("Treeview",
-            background="#2B2B2B",
-            foreground="#FFFFFF",
-            fieldbackground="#2B2B2B",
+            background="#FFFFFF",
+            foreground="#0F172A",
+            fieldbackground="#FFFFFF",
             borderwidth=0
         )
-        style.map('Treeview', background=[('selected', '#1F538D')])
+        style.map('Treeview', background=[('selected', '#DBEAFE')])
 
         self.folder_tree = ttk.Treeview(list_frame, selectmode="browse", show="tree")
         self.folder_tree.pack(side="left", fill="both", expand=True, padx=(0, 5), pady=(0, 0))
@@ -226,8 +230,8 @@ class PresetEditor(ctk.CTkToplevel):
             editor_frame,
             text="Eliminar seleccionada",
             command=self.remove_folder,
-            fg_color="#C62828",
-            hover_color="#D32F2F",
+            fg_color="#EF4444",
+            hover_color="#DC2626",
             width=150,
         )
         remove_button.grid(row=3, column=0, pady=(0, 5), sticky="w")
@@ -278,20 +282,31 @@ class PresetEditor(ctk.CTkToplevel):
 
         apply_button = ctk.CTkButton(
             bottom_frame,
-            text="Aplicar estructura",
+            text="✅ Aplicar estructura",
             command=self.apply_structure,
             height=40,
         )
-        apply_button.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        apply_button.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        delete_preset_button = ctk.CTkButton(
+            bottom_frame,
+            text="🗑️ Eliminar preset",
+            command=self.delete_preset,
+            fg_color="#EF4444",
+            hover_color="#DC2626",
+            height=40,
+            width=160,
+        )
+        delete_preset_button.pack(side="left", padx=(0, 6))
 
         close_button = ctk.CTkButton(
             bottom_frame,
             text="Cerrar",
             command=self.destroy,
-            fg_color="#757575",
-            hover_color="#9E9E9E",
+            fg_color="#64748B",
+            hover_color="#475569",
             height=40,
-            width=120,
+            width=100,
         )
         close_button.pack(side="right")
 
@@ -440,6 +455,43 @@ class PresetEditor(ctk.CTkToplevel):
             self.on_preset_saved(preset_name)
         messagebox.showinfo("Éxito", f"Preset '{preset_name}' guardado.")
 
+    def delete_preset(self):
+        """Delete the currently selected preset from the list (does NOT touch the disk)."""
+        preset_name = self.preset_option.get() if hasattr(self, 'preset_option') else ""
+
+        if not preset_name or preset_name in ("Nuevo preset", "(Sin presets)"):
+            messagebox.showwarning("Advertencia", "Selecciona un preset del menú para poder eliminarlo.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Eliminar preset",
+            f"¿Deseas eliminar el preset '{preset_name}' de la lista?\n"
+            "Esta acción NO borra ninguna carpeta del disco.",
+        )
+        if not confirm:
+            return
+
+        # Remove from dicts
+        self.presets.pop(preset_name, None)
+        self.descriptions.pop(preset_name, None)
+
+        # Refresh dropdown
+        remaining = list(self.presets.keys())
+        if remaining:
+            self.preset_option.configure(values=remaining)
+            self.select_preset(remaining[0])
+        else:
+            self.preset_option.configure(values=["(Sin presets)"])
+            self.preset_option.set("(Sin presets)")
+            self.folder_list = []
+            self.refresh_preview()
+
+        # Notify parent UI so its dropdown also updates
+        if self.on_preset_saved:
+            self.on_preset_saved(remaining[0] if remaining else "")
+
+        messagebox.showinfo("Listo", f"Preset '{preset_name}' eliminado de la lista.")
+
     def apply_structure(self):
         if not self.folder_list:
             messagebox.showwarning(
@@ -453,6 +505,257 @@ class PresetEditor(ctk.CTkToplevel):
             self.destroy()
 
 
+class CustomExtensionsEditor(ctk.CTkToplevel):
+    """Popup window to manage custom file extensions."""
+
+    def __init__(self, parent, on_save=None):
+        super().__init__(parent)
+        self.title("Administrador de Extensiones Personalizadas")
+        self.geometry("600x500")
+        self.resizable(True, True)
+        self.attributes("-topmost", True)
+        self.transient(parent)
+        self.on_save = on_save
+        
+        # Use the singleton so changes persist across the app
+        self.manager = get_extensions_manager()
+        # Reload from disk to catch any changes made externally
+        self.manager.load_extensions()
+        self._create_widgets()
+        self.refresh_categories_list()
+
+    def _create_widgets(self):
+        """Create UI widgets."""
+        # Title
+        title_frame = ctk.CTkFrame(self, fg_color="transparent")
+        title_frame.pack(fill="x", padx=15, pady=(10, 5))
+        
+        ctk.CTkLabel(
+            title_frame,
+            text="Administrador de Extensiones Personalizadas",
+            font=("Arial", 14, "bold"),
+        ).pack(anchor="w")
+        
+        ctk.CTkLabel(
+            title_frame,
+            text="Define tus propias categorías y extensiones de archivo",
+            font=("Arial", 10),
+            text_color="gray",
+        ).pack(anchor="w", pady=(0, 5))
+
+        # Main content frame
+        content_frame = ctk.CTkFrame(self)
+        content_frame.pack(fill="both", expand=True, padx=15, pady=10)
+        content_frame.grid_rowconfigure(0, weight=0)  # add section
+        content_frame.grid_rowconfigure(1, weight=0)  # label
+        content_frame.grid_rowconfigure(2, weight=1)  # listbox expands
+        content_frame.grid_rowconfigure(3, weight=0)  # buttons
+        content_frame.grid_columnconfigure(0, weight=1)
+
+        # Section 1: Add new extension
+        add_frame = ctk.CTkFrame(content_frame)
+        add_frame.grid(row=0, column=0, sticky="ew", pady=(0, 15))
+        add_frame.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            add_frame,
+            text="Agregar Nueva Categoría",
+            font=("Arial", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 8))
+
+        # Category name input
+        ctk.CTkLabel(add_frame, text="Nombre de la carpeta:", font=("Arial", 10)).pack(anchor="w")
+        self.category_entry = ctk.CTkEntry(
+            add_frame,
+            placeholder_text="Ej: Diseño, Proyectos, etc.",
+            height=32,
+        )
+        self.category_entry.pack(fill="x", pady=(3, 8))
+
+        # Extensions input
+        ctk.CTkLabel(add_frame, text="Extensiones (separadas por comas):", font=("Arial", 10)).pack(anchor="w")
+        self.extensions_entry = ctk.CTkEntry(
+            add_frame,
+            placeholder_text="Ej: .psd, .ai, .xd  (se agregarán automáticamente los puntos)",
+            height=32,
+        )
+        self.extensions_entry.pack(fill="x", pady=(3, 8))
+        self.extensions_entry.bind("<Return>", lambda e: self.add_category())
+
+        add_button = ctk.CTkButton(
+            add_frame,
+            text="➕ Agregar Categoría",
+            command=self.add_category,
+            fg_color="#2563EB",
+            hover_color="#1D4ED8",
+            height=35,
+        )
+        add_button.pack(fill="x")
+
+        # Section 2: Existing categories
+        ctk.CTkLabel(
+            content_frame,
+            text="Categorías Personalizadas",
+            font=("Arial", 11, "bold"),
+        ).grid(row=1, column=0, sticky="ew", pady=(15, 8))
+
+        # List frame with scrollbar
+        list_frame = ctk.CTkFrame(content_frame)
+        list_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 15))
+        list_frame.grid_rowconfigure(0, weight=1)
+        list_frame.grid_columnconfigure(0, weight=1)
+
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self.categories_listbox = tk.Listbox(
+            list_frame,
+            height=8,
+            yscrollcommand=scrollbar.set,
+            font=("Courier", 9),
+            bg="#f0f0f0",
+            relief="flat",
+            borderwidth=0,
+        )
+        scrollbar.configure(command=self.categories_listbox.yview)
+        self.categories_listbox.pack(side="left", fill="both", expand=True)
+        self.categories_listbox.bind("<<ListboxSelect>>", self.on_category_select)
+
+        # Action buttons frame
+        buttons_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
+        buttons_frame.grid(row=3, column=0, sticky="ew")
+        buttons_frame.grid_columnconfigure(0, weight=1)
+        buttons_frame.grid_columnconfigure(1, weight=0)
+
+        delete_button = ctk.CTkButton(
+            buttons_frame,
+            text="🗑️ Eliminar Seleccionada",
+            command=self.delete_category,
+            fg_color="#EF4444",
+            hover_color="#DC2626",
+            height=35,
+        )
+        delete_button.pack(side="left", fill="x", expand=True, padx=(0, 5))
+
+        # Bottom buttons
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame.pack(fill="x", padx=15, pady=(0, 15))
+        bottom_frame.grid_columnconfigure(0, weight=1)
+
+        close_button = ctk.CTkButton(
+            bottom_frame,
+            text="Cerrar",
+            command=self.close_window,
+            fg_color="#64748B",
+            hover_color="#475569",
+            height=35,
+            width=120,
+        )
+        close_button.pack(side="right", padx=(5, 0))
+
+        info_label = ctk.CTkLabel(
+            bottom_frame,
+            text="",
+            font=("Arial", 10),
+            text_color="gray",
+        )
+        info_label.pack(side="left", fill="x", expand=True)
+        self.info_label = info_label
+
+    def add_category(self):
+        """Add a new custom category."""
+        category_name = self.category_entry.get().strip()
+        extensions_text = self.extensions_entry.get().strip()
+
+        if not category_name:
+            messagebox.showwarning("Advertencia", "Por favor ingresa un nombre para la categoría.")
+            return
+
+        if not extensions_text:
+            messagebox.showwarning("Advertencia", "Por favor ingresa al menos una extensión.")
+            return
+
+        # Validate category name
+        if not self.manager.validate_category_name(category_name):
+            messagebox.showerror(
+                "Error",
+                "El nombre contiene caracteres inválidos. Usa solo letras, números, guiones y espacios."
+            )
+            return
+
+        # Parse extensions
+        extensions = [ext.strip() for ext in extensions_text.split(",")]
+        extensions = [ext for ext in extensions if ext]  # Remove empty strings
+
+        # Add category
+        if self.manager.add_extension(category_name, extensions):
+            self.category_entry.delete(0, "end")
+            self.extensions_entry.delete(0, "end")
+            self.refresh_categories_list()
+            self.info_label.configure(
+                text=f"✅ Categoría '{category_name}' agregada con {len(extensions)} extensión(es)"
+            )
+            if self.on_save:
+                self.on_save()
+        else:
+            messagebox.showerror("Error", "No se pudo agregar la categoría. Verifica los datos.")
+
+    def delete_category(self):
+        """Delete selected category."""
+        selection = self.categories_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Advertencia", "Selecciona una categoría para eliminar.")
+            return
+
+        index = selection[0]
+        categories = list(self.manager.get_all_categories().keys())
+        if index < len(categories):
+            category_name = categories[index]
+            
+            confirm = messagebox.askyesno(
+                "Confirmar",
+                f"¿Deseas eliminar la categoría '{category_name}' y todas sus extensiones?"
+            )
+            
+            if confirm:
+                if self.manager.remove_category(category_name):
+                    self.refresh_categories_list()
+                    self.info_label.configure(text=f"✅ Categoría '{category_name}' eliminada")
+                    
+                    if self.on_save:
+                        self.on_save()
+
+    def on_category_select(self, event):
+        """Handle category selection."""
+        selection = self.categories_listbox.curselection()
+        if selection:
+            index = selection[0]
+            categories = list(self.manager.get_all_categories().keys())
+            if index < len(categories):
+                category_name = categories[index]
+                extensions = self.manager.get_extensions_for_category(category_name)
+                self.info_label.configure(
+                    text=f"Categoría: {category_name} • Extensiones: {', '.join(extensions)}"
+                )
+
+    def refresh_categories_list(self):
+        """Refresh the categories listbox."""
+        self.categories_listbox.delete(0, tk.END)
+        custom_categories = self.manager.get_all_categories()
+        
+        if not custom_categories:
+            self.categories_listbox.insert(tk.END, "(No hay categorías personalizadas)")
+            self.info_label.configure(text="Crea tu primera categoría personalizada arriba")
+        else:
+            for category, extensions in sorted(custom_categories.items()):
+                display_text = f"📁 {category:20} → {', '.join(extensions)}"
+                self.categories_listbox.insert(tk.END, display_text)
+
+    def close_window(self):
+        """Close the window."""
+        self.destroy()
+
+
 class GestorCarpetasUI:
     """Main UI class for GestorCarpetas."""
 
@@ -463,6 +766,7 @@ class GestorCarpetasUI:
 
         # Create main window
         self.app = ctk.CTk()
+        self.app.configure(fg_color="#F8FAFC")
         self.app.title("🗂️ GestorCarpetas - Organizador de Archivos")
         self.app.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
         self.app.resizable(True, True)
@@ -478,33 +782,37 @@ class GestorCarpetasUI:
         """Create all UI widgets."""
         # Main container
         main_container = ctk.CTkFrame(self.app)
-        main_container.pack(fill="both", expand=True, padx=10, pady=10)
+        main_container.pack(fill="both", expand=True, padx=12, pady=12)
 
         # Main content area
         content_frame = ctk.CTkFrame(main_container)
         content_frame.pack(fill="both", expand=True, pady=(0, 10))
+        content_frame.grid_columnconfigure(0, weight=3, uniform="panel")
+        content_frame.grid_columnconfigure(1, weight=1, uniform="panel")
+        content_frame.grid_rowconfigure(0, weight=1)
 
         # Left panel - Folder tree
         left_panel = ctk.CTkFrame(content_frame)
-        left_panel.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=(0, 0))
 
         title_tree = ctk.CTkLabel(
             left_panel,
             text="🌳 Explorador de Carpetas",
-            font=("Arial", 14, "bold"),
+            font=("Arial", 16, "bold"),
         )
-        title_tree.pack(anchor="w", padx=10, pady=(10, 5))
+        title_tree.pack(anchor="w", padx=12, pady=(12, 8))
 
         self.folder_tree = FolderTreeView(left_panel)
         self.folder_tree.pack(fill="both", expand=True, padx=5, pady=(0, 5))
 
         # Right panel - Status and options
         right_panel = ctk.CTkFrame(content_frame)
-        right_panel.pack(side="right", fill="both", expand=False, padx=(5, 0))
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0), pady=(0, 0))
+        right_panel.grid_rowconfigure(3, weight=1)
 
         # 1. Folder Selection
         folder_frame = ctk.CTkFrame(right_panel)
-        folder_frame.pack(fill="x", padx=10, pady=(10, 5))
+        folder_frame.pack(fill="x", padx=12, pady=(12, 8))
         
         title_folder = ctk.CTkLabel(
             folder_frame,
@@ -524,8 +832,9 @@ class GestorCarpetasUI:
         self.folder_label = ctk.CTkLabel(
             folder_frame,
             text="Ninguna seleccionada",
-            text_color="gray",
-            wraplength=260
+            text_color="#64748B",
+            wraplength=360,
+            justify="left",
         )
         self.folder_label.pack(fill="x", pady=(0, 5))
 
@@ -546,8 +855,8 @@ class GestorCarpetasUI:
             command=self.organize_files,
             height=45,
             font=("Arial", 14, "bold"),
-            fg_color="#2E7D32",
-            hover_color="#388E3C",
+            fg_color="#2563EB",
+            hover_color="#1D4ED8",
         )
         button_organize.pack(fill="x", pady=(0, 5))
 
@@ -556,8 +865,8 @@ class GestorCarpetasUI:
             text="📂 Abrir en Explorador",
             command=self.open_folder,
             height=35,
-            fg_color="#1976D2",
-            hover_color="#1E88E5",
+            fg_color="#3B82F6",
+            hover_color="#2563EB",
         )
         button_open_folder.pack(fill="x", pady=(0, 5))
 
@@ -584,19 +893,28 @@ class GestorCarpetasUI:
             struct_frame,
             text=PRESET_DESCRIPTIONS.get(list(PRESET_STRUCTURES.keys())[0], ""),
             font=("Arial", 10),
-            wraplength=260,
+            wraplength=360,
             justify="left",
             text_color="gray",
         )
         self.preset_description.pack(anchor="w", pady=(0, 5))
 
+        categories_label = ctk.CTkLabel(
+            struct_frame,
+            text="Categorías a organizar",
+            font=("Arial", 11, "bold"),
+        )
+        categories_label.pack(anchor="w", pady=(10, 5))
+
+        self.category_list = list(constants.EXTENSIONES.keys()) + [OTROS_FOLDER]
+
         button_create_structure = ctk.CTkButton(
             struct_frame,
-            text="✅ Crear Estrcutra de Carpetas",
+            text="✅ Crear Estructura de Carpetas",
             command=self.create_structure,
-            fg_color="#FBC02D",
-            hover_color="#F9A825",
-            text_color="black",
+            fg_color="#60A5FA",
+            hover_color="#3B82F6",
+            text_color="white",
             height=35,
         )
         button_create_structure.pack(fill="x", pady=(0, 5))
@@ -605,18 +923,28 @@ class GestorCarpetasUI:
             struct_frame,
             text="⚙️ Administrar Presets",
             command=self.open_preset_editor,
-            fg_color="#2E7D32",
-            hover_color="#388E3C",
+            fg_color="#2563EB",
+            hover_color="#1D4ED8",
             height=35,
         )
         button_manage_presets.pack(fill="x", pady=(0, 5))
+
+        button_manage_extensions = ctk.CTkButton(
+            struct_frame,
+            text="📝 Extensiones Personalizadas",
+            command=self.open_extensions_manager,
+            fg_color="#7C3AED",
+            hover_color="#6D28D9",
+            height=35,
+        )
+        button_manage_extensions.pack(fill="x", pady=(0, 5))
 
         button_delete_folders = ctk.CTkButton(
             struct_frame,
             text="🗑️ Eliminar Carpetas Vacías",
             command=self.delete_structure,
-            fg_color="#C62828",
-            hover_color="#D32F2F",
+            fg_color="#EF4444",
+            hover_color="#DC2626",
             height=35,
         )
         button_delete_folders.pack(fill="x", pady=(0, 5))
@@ -630,14 +958,14 @@ class GestorCarpetasUI:
             text="🔄 Actualizar Vista",
             command=self.refresh_view,
             height=35,
-            width=150,
+            width=180,
         )
         button_refresh.pack(side="left", padx=5, pady=5)
         
         self.status_label = ctk.CTkLabel(
             bottom_bar,
             text="Listo",
-            text_color="gray",
+            text_color="#64748B",
             font=("Arial", 11)
         )
         self.status_label.pack(side="right", padx=15, pady=5)
@@ -667,7 +995,19 @@ class GestorCarpetasUI:
             on_preset_saved=self.on_preset_saved,
         )
 
+    def open_extensions_manager(self):
+        """Open the custom extensions manager window."""
+        CustomExtensionsEditor(
+            self.app,
+            on_save=self.on_custom_extensions_saved,
+        )
 
+    def on_custom_extensions_saved(self):
+        """Callback when custom extensions are saved."""
+        # Force the singleton to reload from disk
+        from custom_extensions import get_extensions_manager
+        get_extensions_manager().load_extensions()
+        self.add_log_message("✅ Extensiones personalizadas actualizadas. Se usarán en la próxima organización.")
 
     def on_preset_saved(self, preset_name: str):
         self.preset_option.configure(values=list(PRESET_STRUCTURES.keys()))
@@ -742,6 +1082,11 @@ class GestorCarpetasUI:
         except Exception as e:
             self.add_log_message(f"⚠️ No se pudo abrir la carpeta: {e}")
 
+    def get_selected_categories(self) -> list[str]:
+        """Return the list of current categories to organize."""
+        from constants import get_extensiones
+        return list(get_extensiones().keys()) + [OTROS_FOLDER]
+
     def organize_files(self):
         """Organize files in selected folder."""
         if not self.selected_folder:
@@ -751,7 +1096,14 @@ class GestorCarpetasUI:
             )
             return
 
-        # Confirm action
+        selected_categories = self.get_selected_categories()
+        if not selected_categories:
+            messagebox.showwarning(
+                "Advertencia",
+                "Selecciona al menos una categoría para organizar.",
+            )
+            return
+
         response = messagebox.askyesno(
             "Confirmar",
             "¿Estás seguro de que deseas organizar los archivos?\n"
@@ -759,7 +1111,7 @@ class GestorCarpetasUI:
         )
 
         if response:
-            stats = self.organizer.organize_files()
+            stats = self.organizer.organize_files(categories=selected_categories)
             self.add_log_message(stats["summary"])
             self.refresh_view()
 
@@ -775,4 +1127,7 @@ class GestorCarpetasUI:
 
     def run(self):
         """Run the application."""
-        self.app.mainloop()
+        try:
+            self.app.mainloop()
+        except KeyboardInterrupt:
+            pass

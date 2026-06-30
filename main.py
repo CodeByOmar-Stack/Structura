@@ -5,8 +5,11 @@ from ui import GestorCarpetasUI
 
 def main():
     """Run the application."""
-    app = GestorCarpetasUI()
-    app.run()
+    try:
+        app = GestorCarpetasUI()
+        app.run()
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == "__main__":

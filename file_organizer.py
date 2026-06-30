@@ -3,7 +3,7 @@
 import shutil
 from pathlib import Path
 from typing import Callable, Optional
-from constants import EXTENSIONES, OTROS_FOLDER, PRESET_STRUCTURES
+from constants import OTROS_FOLDER, PRESET_STRUCTURES, get_extensiones
 
 
 class FileOrganizer:
@@ -51,7 +51,8 @@ class FileOrganizer:
             return False
 
         try:
-            for categoria in EXTENSIONES.keys():
+            extensiones = get_extensiones()
+            for categoria in extensiones.keys():
                 folder = self.ruta / categoria
                 folder.mkdir(exist_ok=True)
             
@@ -62,10 +63,13 @@ class FileOrganizer:
             self.callback(f"❌ Error al crear carpetas: {str(e)}")
             return False
 
-    def organize_files(self) -> dict:
+    def organize_files(self, categories: Optional[list[str]] = None) -> dict:
         """
         Organize files into category folders.
-        
+
+        Args:
+            categories: Optional list of categories to organize. If None, all categories are used.
+
         Returns:
             Dictionary with statistics: {
                 'moved': int,
@@ -78,27 +82,32 @@ class FileOrganizer:
             return {"moved": 0, "errors": [], "summary": "No hay carpeta seleccionada"}
 
         stats = {"moved": 0, "errors": []}
+        EXTENSIONES = get_extensiones()
+        selected_categories = set(categories) if categories is not None else set(EXTENSIONES.keys()) | {OTROS_FOLDER}
 
         try:
-            # Create category folders first
-            self.create_category_folders()
-
-            # Organize files
             files = [f for f in self.ruta.iterdir() if f.is_file()]
-            
+
             for archivo in files:
                 try:
                     extension = archivo.suffix.lower()
                     destino = OTROS_FOLDER
 
-                    # Find matching category
-                    for categoria, extensiones in EXTENSIONES.items():
-                        if extension in extensiones:
+                    for categoria, exts in EXTENSIONES.items():
+                        if extension in exts:
                             destino = categoria
                             break
 
-                    # Move file
-                    destino_path = self.ruta / destino / archivo.name
+                    if destino != OTROS_FOLDER and destino not in selected_categories:
+                        self.callback(f"⏭️ Saltado {archivo.name}: categoría '{destino}' no seleccionada.")
+                        continue
+                    if destino == OTROS_FOLDER and OTROS_FOLDER not in selected_categories:
+                        self.callback(f"⏭️ Saltado {archivo.name}: categoría 'Otros' no seleccionada.")
+                        continue
+
+                    destino_folder = self.ruta / destino
+                    destino_folder.mkdir(exist_ok=True)
+                    destino_path = destino_folder / archivo.name
                     shutil.move(str(archivo), str(destino_path))
                     stats["moved"] += 1
                     self.callback(f"Movido: {archivo.name} → {destino}/")
@@ -107,7 +116,6 @@ class FileOrganizer:
                     stats["errors"].append(error_msg)
                     self.callback(f"⚠️ {error_msg}")
 
-            # Generate summary
             summary = f"✅ Operación completada: {stats['moved']} archivos movidos"
             if stats["errors"]:
                 summary += f" ({len(stats['errors'])} errores)"
@@ -138,7 +146,7 @@ class FileOrganizer:
             elif preset_name and preset_name in PRESET_STRUCTURES:
                 structure_folders = PRESET_STRUCTURES[preset_name]
             else:
-                structure_folders = list(EXTENSIONES.keys())
+                structure_folders = list(get_extensiones().keys())
 
             for folder_name in structure_folders:
                 (self.ruta / folder_name).mkdir(parents=True, exist_ok=True)
@@ -152,20 +160,26 @@ class FileOrganizer:
             self.callback(f"❌ Error al crear estructura: {str(e)}")
             return False
 
-    def delete_folder_structure(self, preset_name: str = None) -> bool:
+    def delete_folder_structure(self, preset_name: str = None, folders: list = None) -> bool:
         """
         Delete preset or category folders in the selected directory.
         Only empty folders will be deleted to prevent accidental data loss.
+
+        Args:
+            preset_name: Name of a predefined preset whose folders to remove.
+            folders: Explicit list of folder paths to remove (takes priority).
         """
         if not self.ruta:
             self.callback("❌ No hay carpeta seleccionada.")
             return False
 
         try:
-            if preset_name and preset_name in PRESET_STRUCTURES:
+            if folders is not None:
+                folders_to_remove = folders
+            elif preset_name and preset_name in PRESET_STRUCTURES:
                 folders_to_remove = PRESET_STRUCTURES[preset_name] + [OTROS_FOLDER]
             else:
-                folders_to_remove = list(EXTENSIONES.keys()) + [OTROS_FOLDER]
+                folders_to_remove = list(get_extensiones().keys()) + [OTROS_FOLDER]
 
             deleted_count = 0
             for folder_name in folders_to_remove:

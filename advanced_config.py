@@ -3,10 +3,10 @@
 # Color scheme presets
 COLOR_SCHEMES = {
     "blue": {
-        "primary": "#0084FF",
-        "secondary": "#E3F2FD",
+        "primary": "#2563EB",
+        "secondary": "#EFF6FF",
         "text": "#FFFFFF",
-        "background": "#1E1E1E",
+        "background": "#F8FAFC",
     },
     "green": {
         "primary": "#4CAF50",

@@ -15,6 +15,7 @@ a = Analysis(
     datas=[
         ('assets', 'assets'),
         ('constants.py', '.'),
+        ('custom_extensions.py', '.'),
         ('file_organizer.py', '.'),
         ('ui.py', '.'),
         ('utils.py', '.'),

@@ -18,13 +18,6 @@ Desarrollada con Python y CustomTkinter. Compatible con **Windows**, **Linux** y
 
 ---
 
-## 📸 Capturas de pantalla
-
-![alt text](/assets/image.png)
-![alt text](/assets/imagePresets.png)
-
----
-
 ## 🛠️ Tecnologías usadas
 
 | Tecnología | Uso |
